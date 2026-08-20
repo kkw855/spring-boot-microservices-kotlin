@@ -1,0 +1,45 @@
+version: '3'
+vars:
+  DB_CONTAINER: catalog-kotlin-postgres
+  DB_NAME: books_catalog_kotlin
+  DB_USER: postgres
+  DB_PASSWORD: postgres
+  DB_PORT: 5432
+
+tasks:
+  db-up:
+    desc: Postgres 컨테이너 기동 (이미 있으면 재사용)
+    internal: true
+    cmds:
+      - |
+        if [ "$(docker ps -aq -f name=^{{.DB_CONTAINER}}$)" ]; then
+          docker start {{.DB_CONTAINER}} > /dev/null
+        else
+          docker run -d --name {{.DB_CONTAINER}} \
+            -e POSTGRES_DB={{.DB_NAME}} \
+            -e POSTGRES_USER={{.DB_USER}} \
+            -e POSTGRES_PASSWORD={{.DB_PASSWORD}} \
+            -p {{.DB_PORT}}:5432 \
+            postgres:18-alpine
+        fi
+
+  db-wait:
+    desc: Postgres가 연결을 받을 때까지 대기
+    internal: true
+    deps: [db-up]
+    cmds:
+      - |
+        until docker exec {{.DB_CONTAINER}} pg_isready -U {{.DB_USER}} -d {{.DB_NAME}} > /dev/null 2>&1; do
+          sleep 1
+        done
+
+  codegen:
+    desc: DB 기동 대기 후 jOOQ codegen 실행
+    cmds:
+      - task: db-wait
+      - ../gradlew jooqCodegen
+
+  db-down:
+    desc: 컨테이너 정리
+    cmds:
+      - docker rm -f {{.DB_CONTAINER}}
